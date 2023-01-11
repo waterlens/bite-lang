@@ -1,0 +1,92 @@
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" | "//" ~ (!"\n" ~ ANY)* ~ "\n" }
+
+ident = @{ (LETTER | "_") ~ (LETTER | NUMBER | "_")* }
+
+sign = @{ "+" | "-" }
+integer = @{ sign? ~ decimal }
+float = @{ sign? ~ decimal_float }
+string = ${ "\"" ~ string_inner ~ "\"" }
+string_inner = @{ ("\\\\" | "\\\"" | (!"\"" ~ ANY))* }
+raw_string = ${ "r" ~ raw_string_begin ~ raw_string_inner ~ raw_string_end }
+raw_string_begin = @{ PUSH((!WHITESPACE ~ !"\"" ~ ANY){,16}) ~ "\"" }
+raw_string_inner = @{ (!("\"" ~ PEEK) ~ ANY)* }
+raw_string_end = @{ "\"" ~ POP }
+
+decimal = @{ ASCII_NONZERO_DIGIT ~ ASCII_DIGIT* }
+decimal_float = @{
+    "." ~ ASCII_DIGIT+ ~ decimal_exponent?
+    | ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ decimal_exponent?
+    | ASCII_DIGIT+ ~ decimal_exponent
+}
+decimal_exponent = @{ ("e" | "E") ~ sign? ~ ASCII_DIGIT+ }
+
+bool = { "true" | "false" }
+
+literal = { float | integer | string | raw_string | bool }
+
+ty_tuple = { "(" ~ ")" | "(" ~ (ty ~ ",")+ ~ ty? ~ ")" }
+ty_ctor = { ident ~ "(" ~ (ty ~ ("," ~ ty)*)? ~ ")" }
+ty_variant = { "<" ~ ty_ctor ~ ("," ~ ty_ctor)* ~ ">" }
+ty_atom = {
+    ty_ctor
+    | ident
+    | ty_tuple
+    | ty_variant
+    | "(" ~ ty ~ ")"
+}
+tparam_list = { ident+ }
+ty_all = { "\\/" ~ tparam_list ~ "." ~ ty }
+ty_arrow = { ty_atom ~ ("->" ~ ty_atom)+ ~ ident? }
+ty = { ty_all | ty_arrow | ty_atom }
+
+op = @{ ("+" | "-" | "*" | "/" | "%" | ">" | "<" | "=" | "!")+ }
+expr_operator = ${ "(" ~ op ~ ")" }
+expr_anno = { "(" ~ expr ~ ":" ~ ty ~ ")" }
+expr_app = { "(" ~ expr ~ expr+ ~ ")" }
+expr_inj = { "#" ~ ident ~ "(" ~ expr ~ ("," ~ expr)* ~ ")" }
+expr_tuple = { "(" ~ ")" | "(" ~ (expr ~ ",")+ ~ expr? ~ ")" }
+expr_atom = {
+    ident
+    | literal
+    | "(" ~ expr ~ ")"
+    | expr_anno
+    | expr_operator
+    | expr_app
+    | expr_tuple
+    | expr_inj
+}
+
+expr_if = { "if" ~ expr ~ "then" ~ expr ~ "else" ~ expr }
+param = { ident ~ ":" ~ ty }
+param_list = { param ~ ("," ~ param)* }
+expr_abs = { "\\" ~ param_list ~ "." ~ expr }
+case_arm = { "#" ~ ident ~ "(" ~ (ident ~ ("," ~ ident)*)? ~ ")" ~ "=>" ~ expr }
+expr_case = { "case" ~ expr ~ "of" ~ case_arm ~ ("|" ~ case_arm)* }
+expr_let = { "let" ~ ident ~ "=" ~ expr ~ "in" ~ expr }
+expr_try = { "try" ~ expr ~ "with" ~ ident ~ "=" ~ expr }
+expr_resume = { "resume" ~ expr ~ expr }
+expr_raise = { "raise" ~ expr ~ expr }
+expr_tabs = { "/\\" ~ tparam_list ~ "." ~ expr }
+
+expr_postfix = { expr_atom ~ (proj | tapp)* }
+proj = { "." ~ integer }
+tapp = { "[" ~ ty+ ~ "]" }
+
+expr = {
+    expr_if
+    | expr_abs
+    | expr_case
+    | expr_let
+    | expr_try
+    | expr_resume
+    | expr_raise
+    | expr_tabs
+    | expr_postfix
+    | expr_atom
+}
+
+type_binding = { "type" ~ ident ~ "=" ~ ty ~ ";" }
+expr_binding = { "let" ~ ident ~ "=" ~ expr ~ ";" }
+top_binding = { type_binding | expr_binding }
+module = { SOI ~ top_binding* ~ EOI }

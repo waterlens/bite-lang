@@ -1,0 +1,123 @@
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+COMMENT = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" | "//" ~ (!"\n" ~ ANY)* ~ "\n" }
+
+ident = @{ (LETTER | "_") ~ (LETTER | NUMBER | "_")* }
+
+sign = @{ "+" | "-" }
+integer = @{ sign? ~ decimal }
+float = @{ sign? ~ decimal_float }
+string = ${ "\"" ~ string_inner ~ "\"" }
+string_inner = @{ ("\\\\" | "\\\"" | (!"\"" ~ ANY))* }
+raw_string = ${ "r" ~ raw_string_begin ~ raw_string_inner ~ raw_string_end }
+raw_string_begin = @{ PUSH((!WHITESPACE ~ !"\"" ~ ANY){,16}) ~ "\"" }
+raw_string_inner = @{ (!("\"" ~ PEEK) ~ ANY)* }
+raw_string_end = @{ "\"" ~ POP }
+
+decimal = @{ ASCII_NONZERO_DIGIT ~ ASCII_DIGIT* }
+decimal_float = @{
+    "." ~ ASCII_DIGIT+ ~ decimal_exponent?
+    | ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ decimal_exponent?
+    | ASCII_DIGIT+ ~ decimal_exponent
+}
+decimal_exponent = @{ ("e" | "E") ~ sign? ~ ASCII_DIGIT+ }
+
+bool = { "true" | "false" }
+
+literal = { float | integer | string | raw_string | bool }
+
+primary_expr = {
+    literal
+    | ident
+    | grouped_expr
+    | tuple_expr
+    | expr_with_block
+    | attribute_item
+}
+
+// closed
+grouped_expr = { "(" ~ expr ~ ")" }
+tuple_expr = { "(" ~ ")" | "(" ~ (expr ~ ",")+ ~ expr? ~ ")" }
+block_expr = { "{" ~ stmts? ~ "}" }
+
+// postfix
+postfix_expr = { primary_expr ~ (
+    field_call
+    | call
+)*}
+field_call = { "." ~ ident ~ argument_list }
+call = { argument_list }
+
+// prefix
+prefix_expr = { prefix_op* ~ postfix_expr }
+prefix_op = { "-" | "!" }
+
+// infix
+mul_expr = { prefix_expr ~ (mul_op ~ prefix_expr)* }
+mul_op = { "*" | "/" | "%" }
+
+add_expr = { mul_expr ~ (add_op ~ mul_expr)* }
+add_op = { "+" | "-" }
+
+compare_expr = { add_expr ~ (compare_op ~ add_expr)* }
+compare_op = { "==" | "!=" | "<=" | ">=" | "<" | ">" }
+
+// block
+expr_with_block = {
+    block_expr
+    | if_expr
+    | match_expr
+    | try_expr
+}
+
+if_expr = { "if" ~ expr ~ block_expr ~ ("else" ~ (block_expr | if_expr))? }
+match_expr = { "match" ~ expr ~ "{" ~ arm_list ~ "}" }
+try_expr = { "try" ~ expr ~  "{" ~ arm_list ~ "}"  }
+
+arm_with_block = { pattern ~ "=>" ~ expr_with_block ~ ","? }
+arm_without_block = { pattern ~ "=>" ~ expr ~ "," }
+arm_list = { (arm_with_block | arm_without_block)* ~ pattern ~ "=>" ~ expr ~ ","? }
+
+pattern = { wildcard_pattern | ctor_pattern | ident_pattern | tuple_pattern }
+wildcard_pattern = { "_" }
+ident_pattern = { ident }
+ctor_pattern = { ident ~ tuple_pattern }
+tuple_pattern = { "(" ~ ")" | "(" ~ pattern ~ ("," ~ pattern)* ~ ","? ~ ")" }
+
+raise_expr = { "raise" ~ expr }
+resume_expr =  { "resume" ~ expr }
+
+expr = {
+    expr_with_block
+    | resume_expr
+    | raise_expr
+    | compare_expr
+}
+
+let_stmt = { "let" ~ pattern ~ ("=" ~ expr)? ~ ";" }
+expr_stmt = { expr ~ ";" | expr_with_block ~ ";"? }
+stmt = { ";" | let_stmt | expr_stmt }
+stmts = { stmt+ ~ expr? | expr }
+
+ty_var = ${ "'" ~ ident }
+ty_prod = { "(" ~ ")" |  "(" ~ ty ~ ("," ~ ty)* ~ ","? ~ ")" }
+ty_atom = { ident | ty_var | ty_prod }
+ty_app = { ty_atom ~ ty_atom* }
+ty_arrow = { ty_app ~ ("->" ~ ty_app)* }
+ty = { ty_arrow }
+
+argument_list = { "(" ~ ")" | "(" ~ expr ~ ("," ~ expr)* ~ ","? ~ ")" }
+parameter_list = { "(" ~ ")" | "(" ~ parameter ~ ("," ~ parameter)* ~ ","? ~ ")" }
+parameter = { pattern ~ ":" ~ ty }
+
+def = { fn_def | eff_def }
+
+fn_def = { attribute_item? ~ "fn" ~ ident ~ parameter_list ~ annotation_opt ~ "{" ~ stmts? ~ "}" }
+eff_def = { attribute_item? ~ "eff" ~ ident ~ parameter_list ~ annotation_opt ~ ";"? }
+
+annotation = { ":" ~ ty }
+annotation_opt = { annotation? }
+
+attribute = { ident ~ argument_list? }
+attribute_item = { "#" ~ "[" ~ attribute ~ ("," ~ attribute)* ~ "]" }
+
+module = { SOI ~ def* ~ EOI }
