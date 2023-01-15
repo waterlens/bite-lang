@@ -141,7 +141,7 @@ fn parse_ty_all(pair: Pair<Rule>) -> PResult<Type> {
     let mut iter = pair.into_inner();
     let tparam_list = parse_tparam_list(iter.next().unwrap())?;
     let ty = parse_ty(iter.next().unwrap())?;
-    Ok(Type::All(tparam_list, Box::new(ty)))
+    Ok(Type::All(tparam_list, ty.pack()))
 }
 
 fn parse_ty_arrow(pair: Pair<Rule>) -> PResult<Type> {
@@ -151,7 +151,7 @@ fn parse_ty_arrow(pair: Pair<Rule>) -> PResult<Type> {
     let mut eff_name = if init.as_rule() == Rule::ident {
         let eff = parse_ident(init).ok_or(WildcardIsNotAllowed)?;
         init = pair.next().unwrap();
-        Some(Box::new(Type::Named(eff)))
+        Some(Type::Named(eff).pack())
     } else {
         None
     };
@@ -159,8 +159,8 @@ fn parse_ty_arrow(pair: Pair<Rule>) -> PResult<Type> {
     pair.try_fold(init_ty, |t2, pair| -> PResult<Type> {
         let t1 = parse_ty_atom(pair)?;
         Ok(Type::Arrow(
-            Box::new(t1),
-            Box::new(t2),
+            t1.pack(),
+            t2.pack(),
             if eff_name.is_some() {
                 let eff = eff_name.clone();
                 eff_name = None;
@@ -206,7 +206,7 @@ fn parse_expr_anno(pair: Pair<Rule>) -> PResult<Expr> {
     let mut iter = pair.into_inner();
     let expr = parse_expr(iter.next().unwrap())?;
     let ty = parse_ty(iter.next().unwrap())?;
-    Ok(Expr::Anno(Box::new(expr), Box::new(ty)))
+    Ok(Expr::Anno(expr.pack(), ty.pack()))
 }
 
 fn parse_expr_app(pair: Pair<Rule>) -> PResult<Expr> {
@@ -218,7 +218,7 @@ fn parse_expr_app(pair: Pair<Rule>) -> PResult<Expr> {
         let arg = parse_expr(pair)?;
         args.push(arg);
     }
-    Ok(Expr::App(Box::new(f), args))
+    Ok(Expr::App(f.pack(), args))
 }
 
 fn parse_expr_inj(pair: Pair<Rule>) -> PResult<Expr> {
@@ -266,7 +266,7 @@ fn parse_expr_if(pair: Pair<Rule>) -> PResult<Expr> {
     let cond = parse_expr(iter.next().unwrap())?;
     let t = parse_expr(iter.next().unwrap())?;
     let f = parse_expr(iter.next().unwrap())?;
-    Ok(Expr::If(Box::new(cond), Box::new(t), Box::new(f)))
+    Ok(Expr::If(cond.pack(), t.pack(), f.pack()))
 }
 
 fn parse_param(pair: Pair<Rule>) -> PResult<(String, Type)> {
@@ -292,7 +292,7 @@ fn parse_expr_abs(pair: Pair<Rule>) -> PResult<Expr> {
     let mut iter = pair.into_inner();
     let pl = parse_param_list(iter.next().unwrap())?;
     let expr = parse_expr(iter.next().unwrap())?;
-    Ok(Expr::Abs(pl, Box::new(expr)))
+    Ok(Expr::Abs(pl, expr.pack()))
 }
 
 fn parse_case_arm(pair: Pair<Rule>) -> PResult<(String, Vec<Option<String>>, Expr)> {
@@ -321,7 +321,7 @@ fn parse_expr_case(pair: Pair<Rule>) -> PResult<Expr> {
         let case = parse_case_arm(pair)?;
         cases.push(case)
     }
-    Ok(Expr::Case(Box::new(expr), cases))
+    Ok(Expr::Case(expr.pack(), cases))
 }
 
 fn parse_expr_let(pair: Pair<Rule>) -> PResult<Expr> {
@@ -330,7 +330,7 @@ fn parse_expr_let(pair: Pair<Rule>) -> PResult<Expr> {
     let name = parse_ident(iter.next().unwrap());
     let e1 = parse_expr(iter.next().unwrap())?;
     let e2 = parse_expr(iter.next().unwrap())?;
-    Ok(Expr::Let(name, Box::new(e1), Box::new(e2)))
+    Ok(Expr::Let(name, e1.pack(), e2.pack()))
 }
 
 fn parse_expr_try(pair: Pair<Rule>) -> PResult<Expr> {
@@ -339,7 +339,7 @@ fn parse_expr_try(pair: Pair<Rule>) -> PResult<Expr> {
     let expr = parse_expr(iter.next().unwrap())?;
     let label = parse_ident(iter.next().unwrap());
     let handler = parse_expr(iter.next().unwrap())?;
-    Ok(Expr::Try(Box::new(expr), label, Box::new(handler)))
+    Ok(Expr::Try(expr.pack(), label, handler.pack()))
 }
 
 fn parse_expr_resume(pair: Pair<Rule>) -> PResult<Expr> {
@@ -347,7 +347,7 @@ fn parse_expr_resume(pair: Pair<Rule>) -> PResult<Expr> {
     let mut iter = pair.into_inner();
     let e1 = parse_expr(iter.next().unwrap())?;
     let e2 = parse_expr(iter.next().unwrap())?;
-    Ok(Expr::Resume(Box::new(e1), Box::new(e2)))
+    Ok(Expr::Resume(e1.pack(), e2.pack()))
 }
 
 fn parse_expr_raise(pair: Pair<Rule>) -> PResult<Expr> {
@@ -355,7 +355,7 @@ fn parse_expr_raise(pair: Pair<Rule>) -> PResult<Expr> {
     let mut iter = pair.into_inner();
     let e1 = parse_expr(iter.next().unwrap())?;
     let e2 = parse_expr(iter.next().unwrap())?;
-    Ok(Expr::Raise(Box::new(e1), Box::new(e2)))
+    Ok(Expr::Raise(e1.pack(), e2.pack()))
 }
 
 fn parse_expr_tabs(pair: Pair<Rule>) -> PResult<Expr> {
@@ -363,7 +363,7 @@ fn parse_expr_tabs(pair: Pair<Rule>) -> PResult<Expr> {
     let mut iter = pair.into_inner();
     let tpl = parse_tparam_list(iter.next().unwrap())?;
     let expr = parse_expr(iter.next().unwrap())?;
-    Ok(Expr::TAbs(tpl, Box::new(expr)))
+    Ok(Expr::TAbs(tpl, expr.pack()))
 }
 
 fn parse_expr_postfix(pair: Pair<Rule>) -> PResult<Expr> {
@@ -372,8 +372,8 @@ fn parse_expr_postfix(pair: Pair<Rule>) -> PResult<Expr> {
     let init_expr = parse_expr_atom(iter.next().unwrap())?;
     iter.try_fold(init_expr, |expr, pair| -> PResult<Expr> {
         match pair.as_rule() {
-            Rule::proj => Ok(Expr::Proj(Box::new(expr), parse_integer(pair)? as usize)),
-            Rule::tapp => Ok(Expr::TApp(Box::new(expr), parse_tapp(pair)?)),
+            Rule::proj => Ok(Expr::Proj(expr.pack(), parse_integer(pair)? as isize)),
+            Rule::tapp => Ok(Expr::TApp(expr.pack(), parse_tapp(pair)?)),
             _ => unreachable!(),
         }
     })
@@ -417,7 +417,7 @@ fn parse_type_binding(pair: Pair<Rule>) -> PResult<TopBinding> {
     let mut iter = pair.into_inner();
     let name = parse_ident(iter.next().unwrap()).ok_or(WildcardIsNotAllowed)?;
     let ty = parse_ty(iter.next().unwrap())?;
-    Ok(TopBinding::TypeBinding(name, ty))
+    Ok(TopBinding::Type(name, ty))
 }
 
 fn parse_expr_binding(pair: Pair<Rule>) -> PResult<TopBinding> {
@@ -425,7 +425,7 @@ fn parse_expr_binding(pair: Pair<Rule>) -> PResult<TopBinding> {
     let mut iter = pair.into_inner();
     let name = parse_ident(iter.next().unwrap());
     let expr = parse_expr(iter.next().unwrap())?;
-    Ok(TopBinding::ExprBinding(name, expr))
+    Ok(TopBinding::Expr(name, expr))
 }
 
 fn parse_top_binding(pair: Pair<Rule>) -> PResult<TopBinding> {
