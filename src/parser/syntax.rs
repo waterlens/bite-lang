@@ -180,9 +180,7 @@ fn parse_op(pair: Pair<Rule>) -> Operator {
         Rule::prefix_op | Rule::mul_op | Rule::add_op | Rule::compare_op
     ));
     use crate::core::*;
-    Operator {
-        name: OP_NAME.get(pair.as_str()).unwrap(),
-    }
+    Operator(OP_NAME.get(pair.as_str()).unwrap())
 }
 
 fn parse_expr_with_block(pair: Pair<Rule>) -> PResult<Expr> {

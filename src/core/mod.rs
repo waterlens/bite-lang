@@ -1,8 +1,9 @@
 use anyhow::{anyhow, Error};
 use once_cell::sync::Lazy;
+use rpds::HashTrieMap;
 use smartstring::alias::String;
 use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -22,7 +23,7 @@ pub(crate) enum Type {
     Var(isize),
     Named(String),
     All(Vec<String>, TyRef),
-    Arrow(TyRef, TyRef, Option<TyRef>),
+    Arrow(Vec<Type>, TyRef, Option<TyRef>),
     Variant(Vec<(String, Vec<Type>)>),
     Tuple(Vec<Type>),
     Ctor(String, Vec<Type>),
@@ -37,9 +38,7 @@ pub(crate) enum Literal {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Operator {
-    pub(crate) name: &'static str,
-}
+pub(crate) struct Operator(pub(crate) &'static str);
 
 pub(crate) type ExRef = Rc<Expr>;
 #[derive(Debug, Clone)]
@@ -50,13 +49,13 @@ pub(crate) enum Expr {
     Var(String),
     Operator(Operator),
     If(ExRef, ExRef, ExRef),
-    Abs(Vec<(String, Type)>, ExRef),
+    Abs(Vec<(String, Option<TyRef>)>, ExRef),
     App(ExRef, Vec<Expr>),
     Inj(Option<String>, Vec<Expr>),
     Proj(ExRef, isize),
     Case(ExRef, Vec<(String, Vec<Option<String>>, Expr)>),
-    Let(Option<String>, ExRef, ExRef),
-    Try(ExRef, Option<String>, ExRef),
+    Let(String, ExRef, ExRef),
+    Try(String, ExRef, ExRef),
     Resume(ExRef, ExRef),
     Raise(ExRef, ExRef),
     TAbs(Vec<String>, ExRef),
@@ -66,16 +65,19 @@ pub(crate) enum Expr {
 #[derive(Debug, Clone)]
 pub(crate) enum TopBinding {
     Type(String, Type),
-    Expr(Option<String>, Expr),
+    Expr(String, Expr),
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct Module(pub(crate) Vec<TopBinding>);
 
-#[derive(Debug, Clone)]
-pub(crate) struct Context<K, V>(Vec<HashMap<K, V>>);
+#[derive(Debug)]
+pub(crate) struct Context<K, V>(HashTrieMap<K, V>)
+where
+    K: Hash + Eq;
 
 pub(crate) enum Binding {
+    Name,
     VarType(Option<Type>),
     Type(Type),
 }
@@ -97,7 +99,7 @@ impl Type {
             Named(x) => f2(c, x.as_str()),
             All(x, y) => All(x.clone(), y.map_aux(c + 1, &mut f1, &mut f2).pack()),
             Arrow(x, y, z) => Arrow(
-                x.map_aux(c, &mut f1, &mut f2).pack(),
+                x.iter().map(|t| t.map_aux(c, &mut f1, &mut f2)).collect(),
                 y.map_aux(c, &mut f1, &mut f2).pack(),
                 z.as_ref().map(|t| t.map_aux(c, &mut f1, &mut f2).pack()),
             ),
@@ -170,20 +172,30 @@ impl Expr {
     }
 }
 
+impl<K, V> Clone for Context<K, V>
+where
+    K: Hash + Eq,
+{
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
 impl<K, V> Context<K, V>
 where
     K: Hash + Eq,
 {
     pub fn new() -> Self {
-        Context(vec![HashMap::new()])
+        Context(HashTrieMap::new())
     }
 
-    pub fn insert(&mut self, key: K, value: V)
-    where
-        K: Hash + Eq,
-    {
-        let last = self.0.last_mut().unwrap();
-        last.insert(key, value);
+    #[must_use]
+    pub fn insert(&self, key: K, value: V) -> Self {
+        Context(self.0.insert(key, value))
+    }
+
+    pub fn insert_mut(&mut self, key: K, value: V) {
+        self.insert_mut(key, value)
     }
 
     pub fn lookup<Q: ?Sized>(&self, k: &Q) -> Option<&V>
@@ -191,20 +203,7 @@ where
         K: Borrow<Q>,
         Q: Hash + Eq,
     {
-        for level_ctx in self.0.iter().rev() {
-            if let Some(v) = level_ctx.get(k) {
-                return Some(v);
-            }
-        }
-        None
-    }
-
-    pub fn entry(&mut self) {
-        self.0.push(HashMap::new());
-    }
-
-    pub fn exit(&mut self) {
-        self.0.pop().unwrap();
+        self.0.get(k)
     }
 }
 
@@ -232,19 +231,72 @@ impl Context<String, Binding> {
         res
     }
 
+    pub fn types_eq(&self, t1: &[Type], t2: &[Type]) -> bool {
+        t1.len() == t2.len()
+            && t1
+                .iter()
+                .zip(t2.iter())
+                .try_fold((), |_, (t1, t2)| {
+                    if self.type_eq(t1, t2) {
+                        Ok(())
+                    } else {
+                        Err(())
+                    }
+                })
+                .is_ok()
+    }
+
     pub fn type_eq(&self, t1: &Type, t2: &Type) -> bool {
         let t1 = self.simplify_type(t1);
         let t2 = self.simplify_type(t2);
         use Type::*;
         match (t1, t2) {
             (Unit, Unit) | (Bool, Bool) | (Integer, Integer) | (Str, Str) => true,
-            (Arrow(t1, t2, None), Arrow(t4, t5, None)) => {
-                self.type_eq(t1, t4) && self.type_eq(t2, t5)
+            (Arrow(t1, t2, t3), Arrow(t4, t5, t6)) => {
+                self.types_eq(t1, t4)
+                    && self.type_eq(t2, t5)
+                    && t3.as_ref().map_or(false, |t3| {
+                        t6.as_ref().map_or(false, |t6| self.type_eq(t3, t6))
+                    })
             }
-            (Arrow(t1, t2, Some(t3)), Arrow(t4, t5, Some(t6))) => {
-                self.type_eq(t1, t4) && self.type_eq(t2, t5) && self.type_eq(t3, t6)
+            (Var(i1), Var(i2)) => i1 == i2,
+            (Named(s1), Named(s2)) => s1 == s2,
+            (Tuple(t1), Tuple(t2)) => self.types_eq(t1, t2),
+            (All(xs, t1), All(_, t2)) => {
+                let mut ctx = self.clone();
+                for x in xs {
+                    ctx.insert_mut(x.clone(), Binding::Name);
+                }
+                ctx.type_eq(t1, t2)
             }
-            _ => todo!(),
+            (Ctor(x, t1), Ctor(y, t2)) if x == y => self.types_eq(t1, t2),
+            (Variant(f1), Variant(f2)) if f1.len() == f2.len() => f1
+                .iter()
+                .zip(f2.iter())
+                .try_fold((), |(), ((x, t1), (y, t2))| {
+                    if x == y && self.types_eq(t1, t2) {
+                        Ok(())
+                    } else {
+                        Err(())
+                    }
+                })
+                .is_ok(),
+            _ => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hamt() {
+        let mut h0 = HashTrieMap::new();
+        h0.insert_mut(1, "1");
+        h0.insert_mut(2, "2");
+        let h1 = h0.insert(2, "3");
+        let h2 = h1.insert(2, "4");
+        println!("{h0} {h1} {h2}")
     }
 }
