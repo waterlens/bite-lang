@@ -108,8 +108,8 @@ impl TryFrom<&Sexp<'_>> for TopBinding {
                     Ok(TopBinding::Type((*x).into(), ty))
                 }
                 [SAtom(Ident("def")), SAtom(Ident(x)), expr] => {
-                    let expr: Type = expr.try_into()?;
-                    Ok(TopBinding::Type((*x).into(), expr))
+                    let expr: Expr = expr.try_into()?;
+                    Ok(TopBinding::Expr((*x).into(), expr))
                 }
                 _ => Err(anyhow!("unknown top binding s-expression: {:?}", value)),
             },
@@ -170,7 +170,7 @@ impl TryFrom<&Sexp<'_>> for Expr {
                         match param {
                             SAtom(Ident(name)) => names.push(((*name).into(), None)),
                             SExpr(xs) => {
-                                let [SAtom(Ident(name)), ty] = xs.as_slice() else {
+                                let [SAtom(Ident(name)), SAtom(Op("::")), ty] = xs.as_slice() else {
                                     return Err(anyhow!("not an annotated parameter: {:?}", param));
                                 };
                                 let ty: Type = ty.try_into()?;
@@ -182,10 +182,21 @@ impl TryFrom<&Sexp<'_>> for Expr {
                     let expr: Expr = expr.try_into()?;
                     Ok(Expr::Abs(names, expr.pack()))
                 }
+                [SAtom(Ident("let")), SAtom(Ident(x)), SAtom(Op("::")), ty, e1, e2] => {
+                    let ty: Type = ty.try_into()?;
+                    let e1: Expr = e1.try_into()?;
+                    let e2: Expr = e2.try_into()?;
+                    Ok(Expr::Let(
+                        (*x).into(),
+                        Some(ty.pack()),
+                        e1.pack(),
+                        e2.pack(),
+                    ))
+                }
                 [SAtom(Ident("let")), SAtom(Ident(x)), e1, e2] => {
                     let e1: Expr = e1.try_into()?;
                     let e2: Expr = e2.try_into()?;
-                    Ok(Expr::Let((*x).into(), e1.pack(), e2.pack()))
+                    Ok(Expr::Let((*x).into(), None, e1.pack(), e2.pack()))
                 }
                 [SAtom(Ident("try")), SAtom(Ident(x)), e1, e2] => {
                     let e1: Expr = e1.try_into()?;
@@ -266,7 +277,9 @@ impl TryFrom<&Sexp<'_>> for Type {
                         names.push((*name).into());
                     }
                     let ty: Type = ty.try_into()?;
-                    Ok(Type::All(names, ty.pack()))
+                    Ok(names
+                        .into_iter()
+                        .rfold(ty, |t, param| Type::All(param, t.pack())))
                 }
                 [SAtom(Ident("arrow")), SExpr(t1), t2] | [SExpr(t1), SAtom(Op("->")), t2] => {
                     let mut t1s = vec![];
@@ -329,7 +342,17 @@ fn parse_sexp_as_top_binding(pair: Pair<Rule>) -> PResult<TopBinding> {
     parse_sexp(pair)?.try_into()
 }
 
-fn parse(input: &str) -> PResult<Module> {
+pub fn parse_type(input: &str) -> PResult<Type> {
+    let ty = CoreParser::parse(Rule::ty, input)?.next().unwrap();
+    parse_sexp_as_type(ty.into_inner().next().unwrap())
+}
+
+pub fn parse_expr(input: &str) -> PResult<Expr> {
+    let expr = CoreParser::parse(Rule::expr, input)?.next().unwrap();
+    parse_sexp_as_expr(expr.into_inner().next().unwrap())
+}
+
+pub fn parse(input: &str) -> PResult<Module> {
     let module = CoreParser::parse(Rule::module, input)?.next().unwrap();
     let mut tb = vec![];
     for sexp in module.into_inner() {
@@ -349,6 +372,12 @@ mod tests {
         let input = r###"
 (type List (forall [a] (variant [Cons a] [Nil])))
 (type Cont (forall [t1 t2] (# cont t1 t2)))
+(def _1 
+    (try handle_id
+        (\ 
+            [(k :: (# cont int int))] 
+            (\ (x) (resume k x)))
+        (raise handle_id x)))
         "###;
         println!("{:?}", parse(input).unwrap())
     }

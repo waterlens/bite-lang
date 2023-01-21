@@ -1,28 +1,32 @@
 use anyhow::{anyhow, Error};
+use indexmap::IndexSet;
 use once_cell::sync::Lazy;
 use rpds::HashTrieMap;
 use smartstring::alias::String;
 use std::borrow::Borrow;
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::rc::Rc;
 
-pub(crate) static OP_NAME: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+pub(crate) mod normalizer;
+
+pub static OP_NAME: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
         "-", "!", "*", "/", "%", "+", "==", "!=", "<=", ">=", "<", ">",
     ])
 });
 
-pub(crate) type TyRef = Rc<Type>;
+pub type TyRef = Rc<Type>;
 #[derive(Debug, Clone)]
-pub(crate) enum Type {
+pub enum Type {
     Unit,
     Str,
     Integer,
     Bool,
     Var(isize),
     Named(String),
-    All(Vec<String>, TyRef),
+    All(String, TyRef),
     Arrow(Vec<Type>, TyRef, Option<TyRef>),
     Variant(Vec<(String, Vec<Type>)>),
     Tuple(Vec<Type>),
@@ -30,7 +34,7 @@ pub(crate) enum Type {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum Literal {
+pub enum Literal {
     Str(String),
     Integer(i64),
     Float(f64),
@@ -38,11 +42,11 @@ pub(crate) enum Literal {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Operator(pub(crate) &'static str);
+pub struct Operator(pub &'static str);
 
-pub(crate) type ExRef = Rc<Expr>;
+pub type ExRef = Rc<Expr>;
 #[derive(Debug, Clone)]
-pub(crate) enum Expr {
+pub enum Expr {
     Unit,
     Anno(ExRef, TyRef),
     Literal(Box<Literal>),
@@ -54,7 +58,7 @@ pub(crate) enum Expr {
     Inj(Option<String>, Vec<Expr>),
     Proj(ExRef, isize),
     Case(ExRef, Vec<(String, Vec<Option<String>>, Expr)>),
-    Let(String, ExRef, ExRef),
+    Let(String, Option<TyRef>, ExRef, ExRef),
     Try(String, ExRef, ExRef),
     Resume(ExRef, ExRef),
     Raise(ExRef, ExRef),
@@ -63,23 +67,23 @@ pub(crate) enum Expr {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum TopBinding {
+pub enum TopBinding {
     Type(String, Type),
     Expr(String, Expr),
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Module(pub(crate) Vec<TopBinding>);
+pub struct Module(pub Vec<TopBinding>);
 
 #[derive(Debug)]
-pub(crate) struct Context<K, V>(HashTrieMap<K, V>)
+pub struct Context<K, V>(HashTrieMap<K, V>)
 where
     K: Hash + Eq;
 
-pub(crate) enum Binding {
+pub enum Binding {
     Name,
-    VarType(Option<Type>),
-    Type(Type),
+    VarTy(Option<Type>),
+    TyAlias(Type),
 }
 
 impl Type {
@@ -87,52 +91,97 @@ impl Type {
         Rc::new(self)
     }
 
-    fn map_aux<F1, F2>(&self, c: isize, mut f1: F1, mut f2: F2) -> Self
+    fn map_aux<F1, F2>(&self, c: isize, f1: F1, f2: F2) -> Self
     where
-        F1: FnMut(isize, isize) -> Self,
-        F2: FnMut(isize, &str) -> Self,
+        F1: Fn(isize, isize) -> Self + Clone,
+        F2: Fn(isize, &str) -> Self + Clone,
     {
         use Type::*;
         match self {
             Unit | Str | Integer | Bool => self.clone(),
             Var(x) => f1(c, *x),
             Named(x) => f2(c, x.as_str()),
-            All(x, y) => All(x.clone(), y.map_aux(c + 1, &mut f1, &mut f2).pack()),
+            All(x, y) => All(x.clone(), y.map_aux(c + 1, f1, f2).pack()),
             Arrow(x, y, z) => Arrow(
-                x.iter().map(|t| t.map_aux(c, &mut f1, &mut f2)).collect(),
-                y.map_aux(c, &mut f1, &mut f2).pack(),
-                z.as_ref().map(|t| t.map_aux(c, &mut f1, &mut f2).pack()),
+                x.iter()
+                    .map(|t| t.map_aux(c, f1.clone(), f2.clone()))
+                    .collect(),
+                y.map_aux(c, f1.clone(), f2.clone()).pack(),
+                z.as_ref()
+                    .map(|t| t.map_aux(c, f1.clone(), f2.clone()).pack()),
             ),
             Variant(x) => Variant(
                 x.iter()
                     .map(|(s, t)| {
                         (
                             s.clone(),
-                            t.iter().map(|t| t.map_aux(c, &mut f1, &mut f2)).collect(),
+                            t.iter()
+                                .map(|t| t.map_aux(c, f1.clone(), f2.clone()))
+                                .collect(),
                         )
                     })
                     .collect(),
             ),
-            Tuple(x) => Tuple(x.iter().map(|t| t.map_aux(c, &mut f1, &mut f2)).collect()),
+            Tuple(x) => Tuple(
+                x.iter()
+                    .map(|t| t.map_aux(c, f1.clone(), f2.clone()))
+                    .collect(),
+            ),
             Ctor(x, y) => Ctor(
                 x.clone(),
-                y.iter().map(|t| t.map_aux(c, &mut f1, &mut f2)).collect(),
+                y.iter()
+                    .map(|t| t.map_aux(c, f1.clone(), f2.clone()))
+                    .collect(),
             ),
         }
     }
 
     fn map_index<F>(&self, c: isize, f: F) -> Self
     where
-        F: FnMut(isize, isize) -> Self,
+        F: Fn(isize, isize) -> Self + Clone,
     {
         self.map_aux(c, f, |_, x| Type::Named(x.into()))
     }
 
     fn map_named<F>(&self, c: isize, f: F) -> Self
     where
-        F: FnMut(isize, &str) -> Self,
+        F: Fn(isize, &str) -> Self + Clone,
     {
         self.map_aux(c, |_, x| Type::Var(x), f)
+    }
+
+    pub fn to_locally_nameless(self) -> Type {
+        match self {
+            Type::Unit | Type::Str | Type::Integer | Type::Bool | Type::Var(_) | Type::Named(_) => {
+                self
+            }
+            Type::All(x, y) => Type::All(
+                x.clone(),
+                y.var_close(x.as_str()).to_locally_nameless().pack(),
+            ),
+            Type::Arrow(x, y, z) => Type::Arrow(
+                x.into_iter().map(|x| x.to_locally_nameless()).collect(),
+                y.as_ref().clone().to_locally_nameless().pack(),
+                z.map(|z| z.as_ref().clone().to_locally_nameless().pack()),
+            ),
+            Type::Variant(xs) => Type::Variant(
+                xs.iter()
+                    .map(|(x, y)| {
+                        (
+                            x.clone(),
+                            y.iter().map(|y| y.clone().to_locally_nameless()).collect(),
+                        )
+                    })
+                    .collect(),
+            ),
+            Type::Tuple(xs) => {
+                Type::Tuple(xs.iter().map(|x| x.clone().to_locally_nameless()).collect())
+            }
+            Type::Ctor(x, ys) => Type::Ctor(
+                x.clone(),
+                ys.iter().map(|y| y.clone().to_locally_nameless()).collect(),
+            ),
+        }
     }
 
     fn shift_above(&self, d: isize, c: isize) -> Self {
@@ -163,6 +212,68 @@ impl Type {
 
     pub fn open(&self, ty: &Type) -> Self {
         self.open_n(0, ty)
+    }
+
+    fn var_close_n(&self, n: isize, name: &str, x: isize) -> Self {
+        self.map_named(n, |c, s| {
+            if s == name {
+                Type::Var(x + c - n)
+            } else {
+                Type::Named(s.into())
+            }
+        })
+    }
+
+    pub fn var_close(&self, name: &str) -> Self {
+        self.var_close_n(0, name, 0)
+    }
+
+    pub fn free_names(&self) -> IndexSet<String> {
+        let ls = RefCell::new(IndexSet::new());
+        self.map_named(0, |_, s| {
+            ls.borrow_mut().insert(s.into());
+            Type::Named(s.into())
+        });
+        ls.take()
+    }
+
+    fn remove_quantifiers(&self) -> (Vec<String>, &Type) {
+        let mut v = vec![];
+        let mut ty = self;
+        while let Type::All(x, inner) = ty {
+            v.push(x.clone());
+            ty = inner;
+        }
+        (v, ty)
+    }
+
+    pub fn normalize(&self) -> Type {
+        let (names, inner) = self.remove_quantifiers();
+        let free = RefCell::new(IndexSet::new());
+        inner.map_index(0, |c, x| {
+            if x >= c {
+                free.borrow_mut().insert(x - c);
+            }
+            Type::Var(x)
+        });
+        let free: Vec<_> = free.take().into_iter().collect();
+        let len = free.len();
+        let map: HashMap<isize, isize> = free
+            .into_iter()
+            .rev()
+            .enumerate()
+            .map(|(idx, x)| (x, idx as isize))
+            .collect();
+        let new_inner = inner.map_index(0, |c, x| {
+            if let Some(to) = map.get(&(x - c)) {
+                Type::Var(*to)
+            } else {
+                Type::Var(x)
+            }
+        });
+        names[..len].iter().rfold(new_inner, |inner, name| {
+            Type::All(name.clone(), inner.pack())
+        })
     }
 }
 
@@ -195,7 +306,7 @@ where
     }
 
     pub fn insert_mut(&mut self, key: K, value: V) {
-        self.insert_mut(key, value)
+        self.0.insert_mut(key, value)
     }
 
     pub fn lookup<Q: ?Sized>(&self, k: &Q) -> Option<&V>
@@ -209,7 +320,7 @@ where
 
 impl Context<String, Binding> {
     fn find_type(&self, name: &str) -> Result<&Type, Error> {
-        if let Some(Binding::Type(x)) = self.lookup(name) {
+        if let Some(Binding::TyAlias(x)) = self.lookup(name) {
             Ok(x)
         } else {
             Err(anyhow!("{} can't be found in current context", name))
@@ -246,6 +357,10 @@ impl Context<String, Binding> {
                 .is_ok()
     }
 
+    pub fn unify<'a>(&self, t1: &'a Type, t2: &'a Type) -> Vec<(isize, Type)> {
+        todo!()
+    }
+
     pub fn type_eq(&self, t1: &Type, t2: &Type) -> bool {
         let t1 = self.simplify_type(t1);
         let t2 = self.simplify_type(t2);
@@ -255,18 +370,24 @@ impl Context<String, Binding> {
             (Arrow(t1, t2, t3), Arrow(t4, t5, t6)) => {
                 self.types_eq(t1, t4)
                     && self.type_eq(t2, t5)
-                    && t3.as_ref().map_or(false, |t3| {
-                        t6.as_ref().map_or(false, |t6| self.type_eq(t3, t6))
-                    })
+                    && t3
+                        .as_ref()
+                        .zip(t6.as_ref())
+                        .map_or(false, |(t3, t6)| self.type_eq(t3, t6))
             }
             (Var(i1), Var(i2)) => i1 == i2,
+            (Named(s), t2) if matches!(self.lookup(s), Some(Binding::TyAlias(_))) => {
+                let Some(Binding::TyAlias(t1)) = self.lookup(s) else { unreachable!( )};
+                self.type_eq(t1, t2)
+            }
+            (t1, Named(s)) if matches!(self.lookup(s), Some(Binding::TyAlias(_))) => {
+                let Some(Binding::TyAlias(t2)) = self.lookup(s) else { unreachable!( )};
+                self.type_eq(t1, t2)
+            }
             (Named(s1), Named(s2)) => s1 == s2,
             (Tuple(t1), Tuple(t2)) => self.types_eq(t1, t2),
-            (All(xs, t1), All(_, t2)) => {
-                let mut ctx = self.clone();
-                for x in xs {
-                    ctx.insert_mut(x.clone(), Binding::Name);
-                }
+            (All(x, t1), All(_, t2)) => {
+                let ctx = self.insert(x.clone(), Binding::Name);
                 ctx.type_eq(t1, t2)
             }
             (Ctor(x, t1), Ctor(y, t2)) if x == y => self.types_eq(t1, t2),
@@ -298,5 +419,26 @@ mod tests {
         let h1 = h0.insert(2, "3");
         let h2 = h1.insert(2, "4");
         println!("{h0} {h1} {h2}")
+    }
+
+    #[test]
+    fn test_to_nameless() {
+        use crate::parser::core::*;
+
+        let ty = parse_type(r"(forall (a b) ([a] -> ([b] -> a / c)))").unwrap();
+        println!("{ty:#?}");
+        let ty = ty.to_locally_nameless();
+        println!("{ty:#?}");
+    }
+
+    #[test]
+    fn test_type_normal_form() {
+        use crate::parser::core::*;
+
+        let ty = parse_type(r"(forall (a) (forall (b c) ([b] -> c)))").unwrap();
+        let ty = ty.to_locally_nameless();
+        println!("{ty:#?}");
+        let ty = ty.normalize();
+        println!("{ty:#?}");
     }
 }

@@ -1,45 +1,45 @@
 use smartstring::alias::String;
 use std::collections::HashMap;
 
-pub(crate) struct Module {
-    pub(crate) fn_def: Vec<FnDef>,
-    pub(crate) type_def: Vec<TypeDef>,
-    pub(crate) eff_def: Vec<EffDef>,
+pub struct Module {
+    pub fn_def: Vec<FnDef>,
+    pub type_def: Vec<TypeDef>,
+    pub eff_def: Vec<EffDef>,
 }
 
-pub(crate) struct FnDef {
-    pub(crate) name: String,
-    pub(crate) parameter: Vec<Parameter>,
-    pub(crate) annotation: Option<Type>,
-    pub(crate) body: Vec<Stmt>,
-    pub(crate) attr: Option<Attribute>,
+pub struct FnDef {
+    pub name: String,
+    pub parameter: Vec<Parameter>,
+    pub annotation: Option<Type>,
+    pub body: Vec<Stmt>,
+    pub attr: Option<Attribute>,
 }
 
-pub(crate) struct TypeDef {
-    pub(crate) name: String,
-    pub(crate) parameter: Vec<String>,
-    pub(crate) body: TypeDefBody,
-    pub(crate) attr: Option<Attribute>,
+pub struct TypeDef {
+    pub name: String,
+    pub parameter: Vec<String>,
+    pub body: TypeDefBody,
+    pub attr: Option<Attribute>,
 }
 
-pub(crate) enum TypeDefBody {
+pub enum TypeDefBody {
     Synonym(Box<Type>),
     Variant(Vec<Ctor>),
 }
 
-pub(crate) struct EffDef {
-    pub(crate) name: String,
-    pub(crate) parameter: Vec<Parameter>,
-    pub(crate) annotation: Option<Type>,
-    pub(crate) attr: Option<Attribute>,
+pub struct EffDef {
+    pub name: String,
+    pub parameter: Vec<Parameter>,
+    pub annotation: Option<Type>,
+    pub attr: Option<Attribute>,
 }
 
-pub(crate) struct Ctor {
-    pub(crate) name: Option<String>,
-    pub(crate) fields: Option<Vec<Type>>,
+pub struct Ctor {
+    pub name: Option<String>,
+    pub fields: Option<Vec<Type>>,
 }
 
-pub(crate) enum Type {
+pub enum Type {
     Named(String),
     Quoted(String),
     Tuple(Vec<Type>),
@@ -47,9 +47,9 @@ pub(crate) enum Type {
     App(Box<Type>, Box<Type>),
 }
 
-pub(crate) type Operator = crate::core::Operator;
+pub type Operator = crate::core::Operator;
 
-pub(crate) enum Expr {
+pub enum Expr {
     Literal(Literal),
     Variable(String),
     If(Box<Expr>, Box<Expr>, Option<Box<Expr>>),
@@ -66,17 +66,17 @@ pub(crate) enum Expr {
     Raise(Box<Expr>),
     Block(Vec<Stmt>),
 }
-pub(crate) type Literal = crate::core::Literal;
+pub type Literal = crate::core::Literal;
 
-pub(crate) enum Pattern {
+pub enum Pattern {
     Identifier(String),
     Wildcard,
     Ctor(Option<String>, Vec<Pattern>),
 }
 
-pub(crate) struct Parameter(pub(crate) Box<Pattern>, pub(crate) Box<Type>);
+pub struct Parameter(pub Box<Pattern>, pub Box<Type>);
 
-pub(crate) enum Stmt {
+pub enum Stmt {
     Let {
         name: Pattern,
         ty: Option<Box<Type>>,
@@ -85,4 +85,4 @@ pub(crate) enum Stmt {
     Expr(Expr),
 }
 
-pub(crate) struct Attribute(pub(crate) HashMap<String, Vec<Expr>>);
+pub struct Attribute(pub HashMap<String, Vec<Expr>>);

@@ -1,3 +1,3 @@
 
-mod syntax;
-mod core;
+pub(crate) mod syntax;
+pub(crate) mod core;

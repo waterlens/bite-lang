@@ -29,4 +29,6 @@ sexp = { atom | "(" ~ sexp+~ ")" | "[" ~ sexp+ ~ "]" }
 op = @{ ("+" | "-" | "*" | "/" | "%" | ">" | "<" | "=" | "!" | "#" | "." | ":" | "@" | "\\")+ }
 atom = { literal | ident | op }
 
+ty = { SOI ~ sexp ~ EOI }
+expr = { SOI ~ sexp ~ EOI }
 module = { SOI ~ sexp* ~ EOI }
