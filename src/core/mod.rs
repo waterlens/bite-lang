@@ -10,6 +10,7 @@ use std::hash::Hash;
 use std::rc::Rc;
 
 pub(crate) mod normalizer;
+pub(crate) mod conversion;
 
 pub static OP_NAME: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
@@ -56,7 +57,7 @@ pub enum Expr {
     Abs(Vec<(String, Option<TyRef>)>, ExRef),
     App(ExRef, Vec<Expr>),
     Inj(Option<String>, Vec<Expr>),
-    Proj(ExRef, isize),
+    Proj(ExRef, i64),
     Case(ExRef, Vec<(String, Vec<Option<String>>, Expr)>),
     Let(String, Option<TyRef>, ExRef, ExRef),
     Try(String, ExRef, ExRef),
@@ -357,7 +358,7 @@ impl Context<String, Binding> {
                 .is_ok()
     }
 
-    pub fn unify<'a>(&self, t1: &'a Type, t2: &'a Type) -> Vec<(isize, Type)> {
+    pub fn unify<'a>(&self, _t1: &'a Type, _t2: &'a Type) -> Vec<(isize, Type)> {
         todo!()
     }
 
