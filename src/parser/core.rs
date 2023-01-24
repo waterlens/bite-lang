@@ -123,7 +123,7 @@ pub fn parse(input: &str) -> PResult<Module> {
         }
         tb.push(parse_sexp_as_top_binding(sexp)?);
     }
-    Ok(Module(tb))
+    Ok(Module(tb.into()))
 }
 
 #[cfg(test)]

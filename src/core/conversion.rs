@@ -29,11 +29,11 @@ impl TryFrom<&SexpWithStr<'_>> for TopBinding {
             List(xs) => match xs.as_slice() {
                 [Ident("type"), Ident(x), ty] => {
                     let ty: Type = ty.try_into()?;
-                    Ok(TopBinding::Type((*x).into(), ty))
+                    Ok(TopBinding::Type((*x).into(), P(ty)))
                 }
                 [Ident("def"), Ident(x), expr] => {
                     let expr: Expr = expr.try_into()?;
-                    Ok(TopBinding::Expr((*x).into(), expr))
+                    Ok(TopBinding::Expr((*x).into(), P(expr)))
                 }
                 _ => Err(anyhow!("unknown top binding s-expression: {:?}", value)),
             },
@@ -59,14 +59,14 @@ impl TryFrom<&SexpWithStr<'_>> for Expr {
                     for sexp in xs {
                         exprs.push(sexp.try_into()?)
                     }
-                    Ok(Expr::Inj(None, exprs))
+                    Ok(Expr::Inj(None, exprs.into()))
                 }
                 [Ident("inj") | Op("#"), Ident(name), xs @ ..] => {
                     let mut exprs = vec![];
                     for sexp in xs {
                         exprs.push(sexp.try_into()?)
                     }
-                    Ok(Expr::Inj(Some((*name).into()), exprs))
+                    Ok(Expr::Inj(Some((*name).into()), exprs.into()))
                 }
                 [Op("@"), f, xs @ ..] => {
                     let f: Expr = f.try_into()?;
@@ -74,18 +74,18 @@ impl TryFrom<&SexpWithStr<'_>> for Expr {
                     for sexp in xs {
                         exprs.push(sexp.try_into()?)
                     }
-                    Ok(Expr::App(f.pack(), exprs))
+                    Ok(Expr::App(P(f), exprs.into()))
                 }
                 [x, Op("::"), ty] => {
                     let x: Expr = x.try_into()?;
                     let ty: Type = ty.try_into()?;
-                    Ok(Expr::Anno(x.pack(), ty.pack()))
+                    Ok(Expr::Anno(P(x), P(ty)))
                 }
                 [Ident("if"), cond, tru, fls] => {
                     let cond: Expr = cond.try_into()?;
                     let tru: Expr = tru.try_into()?;
                     let fls: Expr = fls.try_into()?;
-                    Ok(Expr::If(cond.pack(), tru.pack(), fls.pack()))
+                    Ok(Expr::If(P(cond), P(tru), P(fls)))
                 }
                 [Ident("lambda") | Op("\\"), p @ List(params), expr] => {
                     let mut names: Vec<(String, Option<TyRef>)> = vec![];
@@ -103,7 +103,7 @@ impl TryFrom<&SexpWithStr<'_>> for Expr {
                         }
                     }
                     let expr: Expr = expr.try_into()?;
-                    Ok(Expr::Abs(names, expr.pack()))
+                    Ok(Expr::Abs(names.into(), P(expr)))
                 }
                 [Ident("let"), Ident(x), Op("::"), ty, e1, e2] => {
                     let ty: Type = ty.try_into()?;
@@ -111,34 +111,34 @@ impl TryFrom<&SexpWithStr<'_>> for Expr {
                     let e2: Expr = e2.try_into()?;
                     Ok(Expr::Let(
                         (*x).into(),
-                        Some(ty.pack()),
-                        e1.pack(),
-                        e2.pack(),
+                        Some(P(ty)),
+                        P(e1),
+                        P(e2),
                     ))
                 }
                 [Ident("let"), Ident(x), e1, e2] => {
                     let e1: Expr = e1.try_into()?;
                     let e2: Expr = e2.try_into()?;
-                    Ok(Expr::Let((*x).into(), None, e1.pack(), e2.pack()))
+                    Ok(Expr::Let((*x).into(), None, P(e1), P(e2)))
                 }
                 [Ident("try"), Ident(x), e1, e2] => {
                     let e1: Expr = e1.try_into()?;
                     let e2: Expr = e2.try_into()?;
-                    Ok(Expr::Try((*x).into(), e1.pack(), e2.pack()))
+                    Ok(Expr::Try((*x).into(), P(e1), P(e2)))
                 }
                 [Ident("resume"), e1, e2] => {
                     let e1: Expr = e1.try_into()?;
                     let e2: Expr = e2.try_into()?;
-                    Ok(Expr::Resume(e1.pack(), e2.pack()))
+                    Ok(Expr::Resume(P(e1), P(e2)))
                 }
                 [Ident("raise"), e1, e2] => {
                     let e1: Expr = e1.try_into()?;
                     let e2: Expr = e2.try_into()?;
-                    Ok(Expr::Raise(e1.pack(), e2.pack()))
+                    Ok(Expr::Raise(P(e1), P(e2)))
                 }
                 [Ident("proj"), e, Integer(x)] | [e, Ident("."), Integer(x)] => {
                     let e: Expr = e.try_into()?;
-                    Ok(Expr::Proj(e.pack(), *x))
+                    Ok(Expr::Proj(P(e), *x))
                 }
                 _ => Err(anyhow!("unknown expr s-expression: {:?}", value)),
             },
@@ -163,14 +163,14 @@ impl TryFrom<&SexpWithStr<'_>> for Type {
                     for sexp in xs {
                         tys.push(sexp.try_into()?)
                     }
-                    Ok(Type::Tuple(tys))
+                    Ok(Type::Tuple(tys.into()))
                 }
                 [Ident("ctor") | Op("#"), Ident(name), xs @ ..] => {
                     let mut tys = vec![];
                     for sexp in xs {
                         tys.push(sexp.try_into()?)
                     }
-                    Ok(Type::Ctor((*name).into(), tys))
+                    Ok(Type::Ctor((*name).into(), tys.into()))
                 }
                 [Ident("variant"), xs @ ..] => {
                     let mut fields = vec![];
@@ -185,9 +185,9 @@ impl TryFrom<&SexpWithStr<'_>> for Type {
                         for sexp in ys {
                             tys.push(sexp.try_into()?)
                         }
-                        fields.push(((*s).into(), tys));
+                        fields.push(((*s).into(), tys.into()));
                     }
-                    Ok(Type::Variant(fields))
+                    Ok(Type::Variant(fields.into()))
                 }
                 [Ident("forall"), List(params), ty] => {
                     let mut names: Vec<String> = vec![];
@@ -200,7 +200,7 @@ impl TryFrom<&SexpWithStr<'_>> for Type {
                     let ty: Type = ty.try_into()?;
                     Ok(names
                         .into_iter()
-                        .rfold(ty, |t, param| Type::All(param, t.pack())))
+                        .rfold(ty, |t, param| Type::All(param, P(t))))
                 }
                 [Ident("arrow"), List(t1), t2] | [List(t1), Op("->"), t2] => {
                     let mut t1s = vec![];
@@ -208,7 +208,7 @@ impl TryFrom<&SexpWithStr<'_>> for Type {
                         t1s.push(ty.try_into()?)
                     }
                     let t2: Type = t2.try_into()?;
-                    Ok(Type::Arrow(t1s, t2.pack(), None))
+                    Ok(Type::Arrow(t1s.into(), P(t2), None))
                 }
                 [Ident("arrow"), List(t1), t2, t3] | [List(t1), Op("->"), t2, Op("/"), t3] => {
                     let mut t1s = vec![];
@@ -217,7 +217,7 @@ impl TryFrom<&SexpWithStr<'_>> for Type {
                     }
                     let t2: Type = t2.try_into()?;
                     let t3: Type = t3.try_into()?;
-                    Ok(Type::Arrow(t1s, t2.pack(), Some(t3.pack())))
+                    Ok(Type::Arrow(t1s.into(), P(t2), Some(P(t3))))
                 }
                 _ => Err(anyhow!("unknown type s-expression: {:?}", value)),
             },

@@ -25,7 +25,7 @@ bool = { "true" | "false" }
 
 literal = { float | integer | string | raw_string | bool }
 
-sexp = { atom | "(" ~ sexp+~ ")" | "[" ~ sexp+ ~ "]" }
+sexp = { atom | "(" ~ sexp*~ ")" | "[" ~ sexp* ~ "]" }
 op = @{ ("+" | "-" | "*" | "/" | "%" | ">" | "<" | "=" | "!" | "#" | "." | ":" | "@" | "\\")+ }
 atom = { literal | ident | op }
 
