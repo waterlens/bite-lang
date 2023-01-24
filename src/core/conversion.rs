@@ -1,4 +1,7 @@
+use crate::utils::sexp::Sexp;
+
 use super::*;
+use itertools::Itertools;
 use smartstring::alias::String;
 
 type SexpWithStr<'a> = crate::utils::sexp::Sexp<&'a str>;
@@ -109,12 +112,7 @@ impl TryFrom<&SexpWithStr<'_>> for Expr {
                     let ty: Type = ty.try_into()?;
                     let e1: Expr = e1.try_into()?;
                     let e2: Expr = e2.try_into()?;
-                    Ok(Expr::Let(
-                        (*x).into(),
-                        Some(P(ty)),
-                        P(e1),
-                        P(e2),
-                    ))
+                    Ok(Expr::Let((*x).into(), Some(P(ty)), P(e1), P(e2)))
                 }
                 [Ident("let"), Ident(x), e1, e2] => {
                     let e1: Expr = e1.try_into()?;
@@ -138,7 +136,7 @@ impl TryFrom<&SexpWithStr<'_>> for Expr {
                 }
                 [Ident("proj"), e, Integer(x)] | [e, Ident("."), Integer(x)] => {
                     let e: Expr = e.try_into()?;
-                    Ok(Expr::Proj(P(e), *x))
+                    Ok(Expr::Proj(P(e), (*x).try_into().unwrap()))
                 }
                 _ => Err(anyhow!("unknown expr s-expression: {:?}", value)),
             },
@@ -293,12 +291,12 @@ impl From<&Type> for SexpWithString {
                 List(v)
             }
             Type::Tuple(xs) => {
-                let mut v = vec![Ident("vec".into())];
+                let mut v = vec![Ident("tuple".into())];
                 v.extend(xs.iter().map(|ty| ty.into()));
                 List(v)
             }
             Type::Ctor(x, xs) => {
-                let mut v = vec![Op("#".into()), Ident(x.clone())];
+                let mut v = vec![Op("ctor".into()), Ident(x.clone())];
                 v.extend(xs.iter().map(|t| t.into()));
                 List(v)
             }
@@ -346,17 +344,27 @@ impl From<&Expr> for SexpWithString {
                 v.extend(xs.iter().map(|x| x.into()));
                 List(v)
             }
+            Expr::AppClosure(closure, xs) => {
+                let mut v = vec![Op("apply-closure".into()), closure.as_ref().into()];
+                v.extend(xs.iter().map(|x| x.into()));
+                List(v)
+            }
+            Expr::AppDirectly(closure, xs) => {
+                let mut v = vec![Op("apply-directly".into()), closure.as_ref().into()];
+                v.extend(xs.iter().map(|x| x.into()));
+                List(v)
+            }
             Expr::Inj(Some(name), xs) => {
-                let mut v = vec![Op("#".into()), Ident(name.clone())];
+                let mut v = vec![Op("inj".into()), Ident(name.clone())];
                 v.extend(xs.iter().map(|x| x.into()));
                 List(v)
             }
             Expr::Inj(None, xs) => {
-                let mut v = vec![Op("$".into())];
+                let mut v = vec![Op("tuple".into())];
                 v.extend(xs.iter().map(|x| x.into()));
                 List(v)
             }
-            Expr::Proj(e, n) => List(vec![e.as_ref().into(), Op(".".into()), Integer(*n)]),
+            Expr::Proj(e, n) => List(vec![e.as_ref().into(), Op(".".into()), Integer((*n).try_into().unwrap())]),
             Expr::Case(_, _) => unimplemented!(),
             Expr::Let(x, Some(t), e1, e2) => List(vec![
                 Ident("let".into()),
@@ -394,6 +402,30 @@ impl From<&Expr> for SexpWithString {
     }
 }
 
+impl From<&TopBinding> for SexpWithString {
+    fn from(value: &TopBinding) -> Self {
+        use crate::utils::sexp::Sexp::*;
+        match value {
+            TopBinding::Type(name, ty) => List(vec![
+                Ident("type".into()),
+                Ident(name.clone()),
+                ty.as_ref().into(),
+            ]),
+            TopBinding::Expr(name, expr) => List(vec![
+                Ident("def".into()),
+                Ident(name.clone()),
+                expr.as_ref().into(),
+            ]),
+        }
+    }
+}
+
+impl From<&Module> for SexpWithString {
+    fn from(value: &Module) -> Self {
+        Sexp::List(value.0.iter().map(|x| x.into()).collect_vec())
+    }
+}
+
 impl From<Type> for SexpWithString {
     fn from(value: Type) -> Self {
         (&value).into()
@@ -402,6 +434,18 @@ impl From<Type> for SexpWithString {
 
 impl From<Expr> for SexpWithString {
     fn from(value: Expr) -> Self {
+        (&value).into()
+    }
+}
+
+impl From<TopBinding> for SexpWithString {
+    fn from(value: TopBinding) -> Self {
+        (&value).into()
+    }
+}
+
+impl From<Module> for SexpWithString {
+    fn from(value: Module) -> Self {
         (&value).into()
     }
 }

@@ -14,6 +14,7 @@ pub(crate) mod context;
 pub(crate) mod conversion;
 pub(crate) mod normalizer;
 pub(crate) mod ty;
+pub(crate) mod expr;
 
 pub static OP_NAME: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
@@ -61,8 +62,10 @@ pub enum Expr {
     If(ExRef, ExRef, ExRef),
     Abs(P<[(String, Option<TyRef>)]>, ExRef),
     App(ExRef, ExRefs),
+    AppClosure(ExRef, ExRefs),
+    AppDirectly(ExRef, ExRefs),
     Inj(Option<String>, ExRefs),
-    Proj(ExRef, i64),
+    Proj(ExRef, u64),
     Case(ExRef, P<[(String, P<[Option<String>]>, ExRef)]>),
     Let(String, Option<TyRef>, ExRef, ExRef),
     Try(String, ExRef, ExRef),
@@ -90,6 +93,8 @@ pub enum Binding {
     Name,
     VarTy(Option<TyRef>),
     TyAbbr(TyRef),
+    ClosureAbbr(ExRef),
+    LambdaAbbr(ExRef),
 }
 
 #[cfg(test)]

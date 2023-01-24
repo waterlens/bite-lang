@@ -163,6 +163,20 @@ impl Context<String, Binding> {
                 });
                 fv
             }
+            Expr::AppClosure(e1, e2) => {
+                let fv1 = self.free_variables(e1.as_ref());
+                let fv = e2.iter().fold(fv1, |fv, e| {
+                    fv.union(&self.free_variables(e)).cloned().collect()
+                });
+                fv
+            }
+            Expr::AppDirectly(e1, e2) => {
+                let fv1 = self.free_variables(e1.as_ref());
+                let fv = e2.iter().fold(fv1, |fv, e| {
+                    fv.union(&self.free_variables(e)).cloned().collect()
+                });
+                fv
+            }
             Expr::Inj(_, xs) => xs.iter().fold(HashSet::new(), |fv, e| {
                 fv.union(&self.free_variables(e)).cloned().collect()
             }),

@@ -11,17 +11,17 @@ fn gen_sym(fresh: &RefCell<usize>) -> String {
 impl Expr {
     fn add_binding(
         name: &str,
-        binding: &RefCell<Vec<(String, Option<TyRef>, Expr)>>,
+        binding: &RefCell<Vec<(String, Option<TyRef>, ExRef)>>,
         ty: Option<TyRef>,
         expr: Expr,
     ) -> Expr {
-        binding.borrow_mut().push((name.into(), ty, expr));
+        binding.borrow_mut().push((name.into(), ty, P(expr)));
         Expr::Var(name.into())
     }
 
     fn add_fresh_binding(
         fresh: &RefCell<usize>,
-        binding: &RefCell<Vec<(String, Option<TyRef>, Expr)>>,
+        binding: &RefCell<Vec<(String, Option<TyRef>, ExRef)>>,
         ty: Option<TyRef>,
         expr: Expr,
     ) -> Expr {
@@ -32,7 +32,7 @@ impl Expr {
     fn normalize_expr_without_fresh(
         self,
         fresh: &RefCell<usize>,
-        binding: &RefCell<Vec<(String, Option<TyRef>, Expr)>>,
+        binding: &RefCell<Vec<(String, Option<TyRef>, ExRef)>>,
     ) -> Self {
         match self {
             Expr::Unit | Expr::Literal(_) | Expr::Var(_) | Expr::Operator(_) => {
@@ -60,6 +60,24 @@ impl Expr {
                     .map(|x| x.normalize_aux(fresh, binding))
                     .collect();
                 let expr = Expr::App(f, xs);
+                expr
+            }
+            Expr::AppClosure(closure, xs) => {
+                let closure = closure.map(|x| x.normalize_aux(fresh, binding));
+                let xs = xs
+                    .into_iter()
+                    .map(|x| x.normalize_aux(fresh, binding))
+                    .collect();
+                let expr = Expr::AppClosure(closure, xs);
+                expr
+            }
+            Expr::AppDirectly(f, xs) => {
+                let f = f.map(|x| x.normalize_aux(fresh, binding));
+                let xs = xs
+                    .into_iter()
+                    .map(|x| x.normalize_aux(fresh, binding))
+                    .collect();
+                let expr = Expr::AppDirectly(f, xs);
                 expr
             }
             Expr::Inj(x, xs) => {
@@ -132,17 +150,10 @@ impl Expr {
     fn normalize_expr(
         self,
         fresh: &RefCell<usize>,
-        binding: &RefCell<Vec<(String, Option<TyRef>, Expr)>>,
+        binding: &RefCell<Vec<(String, Option<TyRef>, ExRef)>>,
     ) -> Self {
         let expr = self.normalize_expr_without_fresh(fresh, binding);
         Self::add_fresh_binding(fresh, binding, None, expr)
-    }
-
-    fn is_value(&self) -> bool {
-        matches!(
-            self,
-            Expr::Unit | Expr::Literal(_) | Expr::Var(_) | Expr::Operator(_)
-        )
     }
 
     fn normalize_value(&self) -> Option<Self> {
@@ -155,7 +166,7 @@ impl Expr {
     fn normalize_aux(
         self,
         fresh: &RefCell<usize>,
-        binding: &RefCell<Vec<(String, Option<TyRef>, Expr)>>,
+        binding: &RefCell<Vec<(String, Option<TyRef>, ExRef)>>,
     ) -> Self {
         self.normalize_value()
             .unwrap_or_else(|| self.normalize_expr(fresh, binding))
@@ -164,30 +175,37 @@ impl Expr {
     fn normalize_aux_without_fresh(
         self,
         fresh: &RefCell<usize>,
-        binding: &RefCell<Vec<(String, Option<TyRef>, Expr)>>,
+        binding: &RefCell<Vec<(String, Option<TyRef>, ExRef)>>,
     ) -> Self {
         self.normalize_value()
             .unwrap_or_else(|| self.normalize_expr_without_fresh(fresh, binding))
     }
 
     fn normalize(self, fresh: &RefCell<usize>) -> Self {
-        let binding = RefCell::new(vec![]);
-        let expr = self.normalize_aux(fresh, &binding);
-        let result = binding
-            .into_inner()
-            .into_iter()
-            .rfold(expr, |e2, (x, t, e1)| {
-                if matches!(&e2, Expr::Var(e) if e.as_str() == x) && e1.is_value() {
-                    e1
-                } else {
-                    Expr::Let(x, t, P(e1), P(e2))
-                }
-            });
-        result
+        let bindings = RefCell::new(vec![]);
+        let expr = self.normalize_aux(fresh, &bindings);
+        expr.fold_bindings(bindings.into_inner())
     }
 
     pub fn anf(self) -> Self {
         self.normalize(&RefCell::new(0))
+    }
+}
+
+impl Module {
+    pub fn anf(self) -> Self {
+        Module(
+            self.0
+                .into_iter()
+                .map(|x| {
+                    if let TopBinding::Expr(name, expr) = x {
+                        TopBinding::Expr(name, expr.map(|x| x.anf()))
+                    } else {
+                        x
+                    }
+                })
+                .collect(),
+        )
     }
 }
 
@@ -199,9 +217,12 @@ mod tests {
 
     fn normalize(input: &str) {
         let expr = parse_expr(input).unwrap();
-        let expr = expr.anf();
-        let sexp: Sexp<String> = expr.into();
-        println!("{sexp}\n");
+        let expr1 = expr.clone().anf();
+        let expr2 = expr1.clone().anf();
+        let sexp1: Sexp<String> = expr1.into();
+        let sexp2: Sexp<String> = expr2.into();
+        assert_eq!(sexp1, sexp2);
+        println!("{sexp1}\n");
     }
 
     #[test]

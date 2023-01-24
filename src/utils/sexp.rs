@@ -2,7 +2,7 @@ use itertools::Itertools;
 use smartstring::alias::String;
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Sexp<S: AsRef<str>> {
     Bool(bool),
     Integer(i64),
