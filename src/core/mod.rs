@@ -9,12 +9,14 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
-pub(crate) mod closure;
-pub(crate) mod context;
-pub(crate) mod conversion;
-pub(crate) mod normalizer;
-pub(crate) mod ty;
-pub(crate) mod expr;
+pub mod closure;
+pub mod context;
+pub mod conversion;
+pub mod expr;
+pub mod infer;
+pub mod normalizer;
+pub mod ty;
+pub mod subst;
 
 pub static OP_NAME: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
@@ -29,11 +31,12 @@ pub enum Type {
     Unit,
     Str,
     Integer,
+    Float,
     Bool,
     Var(isize),
     Named(String),
     All(String, TyRef),
-    Arrow(TyRefs, TyRef, Option<TyRef>),
+    Arrow(TyRefs, TyRef, Option<TyRefs>),
     Variant(P<[(String, TyRefs)]>),
     Tuple(TyRefs),
     Ctor(String, TyRefs),
@@ -56,7 +59,7 @@ pub type ExRefs = P<[Expr]>;
 pub enum Expr {
     Unit,
     Anno(ExRef, TyRef),
-    Literal(Box<Literal>),
+    Literal(P<Literal>),
     Var(String),
     Operator(Operator),
     If(ExRef, ExRef, ExRef),
@@ -78,23 +81,46 @@ pub enum Expr {
 #[derive(Debug, Clone)]
 pub enum TopBinding {
     Type(String, TyRef),
-    Expr(String, ExRef),
+    Expr(String, TyRef, ExRef),
 }
+
+#[derive(Debug, Clone)]
+pub struct Subst(String, P<Type>);
 
 #[derive(Debug, Clone)]
 pub struct Module(pub P<[TopBinding]>);
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Context<K, V>(HashTrieMap<K, V>)
 where
     K: Hash + Eq;
 
-pub enum Binding {
-    Name,
-    VarTy(Option<TyRef>),
-    TyAbbr(TyRef),
-    ClosureAbbr(ExRef),
-    LambdaAbbr(ExRef),
+macro_rules! binding_group {
+    {$($x: ident, $t: ty);*} => {
+        #[derive(Debug, Default)]
+        pub struct BindingGroup { $($x: Option<$t>),* }
+        impl Clone for BindingGroup {
+            fn clone(&self) -> Self {
+                Self {
+                    $($x:self.$x.clone()),*
+                }
+            }
+        }
+    };
+}
+
+binding_group! {
+    name, ();
+    var_ty, Option<TyRef>;
+    ty_abbr, TyRef;
+    closure_subst, ();
+    lambda_subst, ();
+    op_ty, TyRef
+}
+
+#[derive(Debug)]
+pub struct ContextGroup {
+    ctx_group: Context<String, BindingGroup>,
 }
 
 #[cfg(test)]

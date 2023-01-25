@@ -4,8 +4,8 @@ use super::*;
 use itertools::Itertools;
 use smartstring::alias::String;
 
-type SexpWithStr<'a> = crate::utils::sexp::Sexp<&'a str>;
-type SexpWithString = crate::utils::sexp::Sexp<String>;
+pub type SexpWithStr<'a> = crate::utils::sexp::Sexp<&'a str>;
+pub type SexpWithString = crate::utils::sexp::Sexp<String>;
 
 impl TryFrom<&SexpWithStr<'_>> for Literal {
     type Error = anyhow::Error;
@@ -34,9 +34,10 @@ impl TryFrom<&SexpWithStr<'_>> for TopBinding {
                     let ty: Type = ty.try_into()?;
                     Ok(TopBinding::Type((*x).into(), P(ty)))
                 }
-                [Ident("def"), Ident(x), expr] => {
+                [Ident("def"), Ident(x), Op("::"), ty, expr] => {
                     let expr: Expr = expr.try_into()?;
-                    Ok(TopBinding::Expr((*x).into(), P(expr)))
+                    let ty: Type = ty.try_into()?;
+                    Ok(TopBinding::Expr((*x).into(), P(ty), P(expr)))
                 }
                 _ => Err(anyhow!("unknown top binding s-expression: {:?}", value)),
             },
@@ -51,7 +52,7 @@ impl TryFrom<&SexpWithStr<'_>> for Expr {
         use crate::utils::sexp::Sexp::*;
         match value {
             Bool(_) | Integer(_) | Float(_) | Str(_) => {
-                Ok(Expr::Literal(Box::new(value.try_into().unwrap())))
+                Ok(Expr::Literal(P(value.try_into().unwrap())))
             }
             Op(x) if OP_NAME.contains(x) => Ok(Expr::Operator(Operator(OP_NAME.get(*x).unwrap()))),
             Ident(x) => Ok(Expr::Var((*x).into())),
@@ -208,14 +209,18 @@ impl TryFrom<&SexpWithStr<'_>> for Type {
                     let t2: Type = t2.try_into()?;
                     Ok(Type::Arrow(t1s.into(), P(t2), None))
                 }
-                [Ident("arrow"), List(t1), t2, t3] | [List(t1), Op("->"), t2, Op("/"), t3] => {
+                [Ident("arrow"), List(t1), t2, List(t3)]
+                | [List(t1), Op("->"), t2, Op("/"), List(t3)] => {
                     let mut t1s = vec![];
+                    let mut t3s = vec![];
                     for ty in t1 {
                         t1s.push(ty.try_into()?)
                     }
+                    for ty in t3 {
+                        t3s.push(ty.try_into()?)
+                    }
                     let t2: Type = t2.try_into()?;
-                    let t3: Type = t3.try_into()?;
-                    Ok(Type::Arrow(t1s.into(), P(t2), Some(P(t3))))
+                    Ok(Type::Arrow(t1s.into(), P(t2), Some(t3s.into())))
                 }
                 _ => Err(anyhow!("unknown type s-expression: {:?}", value)),
             },
@@ -252,6 +257,7 @@ impl From<&Type> for SexpWithString {
             Type::Unit => Ident("unit".into()),
             Type::Str => Ident("str".into()),
             Type::Integer => Ident("int".into()),
+            Type::Float => Ident("float".into()),
             Type::Bool => Ident("bool".into()),
             Type::Var(x) => Ident(format!("`{x}").into()),
             Type::Named(x) => Ident(x.clone()),
@@ -271,7 +277,7 @@ impl From<&Type> for SexpWithString {
                         Op("->".into()),
                         t2.as_ref().into(),
                         Op("/".into()),
-                        t3.as_ref().into(),
+                        List(t3.iter().map(|x| x.into()).collect()),
                     ])
                 } else {
                     List(vec![
@@ -364,7 +370,11 @@ impl From<&Expr> for SexpWithString {
                 v.extend(xs.iter().map(|x| x.into()));
                 List(v)
             }
-            Expr::Proj(e, n) => List(vec![e.as_ref().into(), Op(".".into()), Integer((*n).try_into().unwrap())]),
+            Expr::Proj(e, n) => List(vec![
+                e.as_ref().into(),
+                Op(".".into()),
+                Integer((*n).try_into().unwrap()),
+            ]),
             Expr::Case(_, _) => unimplemented!(),
             Expr::Let(x, Some(t), e1, e2) => List(vec![
                 Ident("let".into()),
@@ -392,7 +402,7 @@ impl From<&Expr> for SexpWithString {
                 e.as_ref().into(),
             ]),
             Expr::Raise(k, e) => List(vec![
-                Ident("try".into()),
+                Ident("raise".into()),
                 k.as_ref().into(),
                 e.as_ref().into(),
             ]),
@@ -411,9 +421,11 @@ impl From<&TopBinding> for SexpWithString {
                 Ident(name.clone()),
                 ty.as_ref().into(),
             ]),
-            TopBinding::Expr(name, expr) => List(vec![
+            TopBinding::Expr(name, ty, expr) => List(vec![
                 Ident("def".into()),
                 Ident(name.clone()),
+                Op("::".into()),
+                ty.as_ref().into(),
                 expr.as_ref().into(),
             ]),
         }

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
-pub(crate) mod syntax;
-pub(crate) mod parser;
-pub(crate) mod utils;
-pub(crate) mod core;
-pub(crate) mod codegen;
+pub mod syntax;
+pub mod parser;
+pub mod utils;
+pub mod core;
+pub mod codegen;

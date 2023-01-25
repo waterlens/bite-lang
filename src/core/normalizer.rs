@@ -118,9 +118,9 @@ impl Expr {
             }
             Expr::Try(x, e1, e2) => {
                 let e1 = e1.map(|x| x.normalize_aux(fresh, binding));
-                Self::add_binding(x.as_str(), binding, None, e1.into_inner());
-                let e2 = e2.map(|x| x.normalize_aux(fresh, binding));
-                e2.into_inner()
+                let e2 = e2.map(|x| x.normalize(fresh));
+                let expr = Expr::Try(x, e1, e2);
+                expr
             }
             Expr::Resume(k, e) => {
                 let k = k.map(|x| x.normalize_aux(fresh, binding));
@@ -198,8 +198,8 @@ impl Module {
             self.0
                 .into_iter()
                 .map(|x| {
-                    if let TopBinding::Expr(name, expr) = x {
-                        TopBinding::Expr(name, expr.map(|x| x.anf()))
+                    if let TopBinding::Expr(name, ty, expr) = x {
+                        TopBinding::Expr(name, ty, expr.map(|x| x.anf()))
                     } else {
                         x
                     }

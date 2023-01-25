@@ -5,16 +5,24 @@ use super::*;
 impl Module {
     pub fn closure_conversion(self) -> Self {
         let mut work_list = vec![];
-        let ctx = Context::new();
+        let mut ctx = ContextGroup::new();
         let fresh1 = RefCell::new(0);
         let fresh2 = RefCell::new(0);
         let fresh3 = RefCell::new(0);
+        for binding in self.0.iter() {
+            match binding {
+                TopBinding::Type(name, abbr) => ctx.insert_ty_abbr_mut(name.as_str(), abbr.clone()),
+                TopBinding::Expr(name, ty, _) => {
+                    ctx.insert_var_ty_mut(name.as_str(), Some(ty.clone()))
+                }
+            }
+        }
         for binding in self
             .0
             .into_iter()
-            .filter(|f| matches!(f, TopBinding::Expr(_, _)))
+            .filter(|f| matches!(f, TopBinding::Expr(_, _, _)))
         {
-            let TopBinding::Expr(name, expr) = binding else { unreachable!()};
+            let TopBinding::Expr(name, ty, expr) = binding else { unreachable!()};
             let expr = expr.map(|x| {
                 x.closure_conversion_aux(
                     ctx.clone(),
@@ -25,7 +33,7 @@ impl Module {
                     &mut work_list,
                 )
             });
-            work_list.push(TopBinding::Expr(name, expr))
+            work_list.push(TopBinding::Expr(name, ty, expr))
         }
         Module(work_list.into())
     }
@@ -69,7 +77,7 @@ impl ClosureInfo {
 impl Expr {
     fn rename_and_capture(
         self,
-        top_ctx: Context<String, Binding>,
+        top_ctx: ContextGroup,
         fresh1: &RefCell<usize>,
         fresh2: &RefCell<usize>,
         _fresh3: &RefCell<usize>,
@@ -107,14 +115,14 @@ impl Expr {
         name: String,
         ty: Option<TyRef>,
         expr: P<Expr>,
-        mut ctx: Context<String, Binding>,
-        top_ctx: Context<String, Binding>,
+        mut ctx: ContextGroup,
+        top_ctx: ContextGroup,
         fresh1: &RefCell<usize>,
         fresh2: &RefCell<usize>,
         fresh3: &RefCell<usize>,
         top_bindings: &mut Vec<TopBinding>,
         local_bindings: &mut Vec<(String, Option<TyRef>, ExRef)>,
-    ) -> Context<String, Binding> {
+    ) -> ContextGroup {
         let work_list = local_bindings;
         let info = expr.and_then(|x| x.rename_and_capture(top_ctx.clone(), fresh1, fresh2, fresh3));
         if info.requires_env_capture() {
@@ -129,7 +137,11 @@ impl Expr {
             let closure_name = fresh_name_for_closure(fresh3);
 
             // lift the lambda body to the top scope
-            top_bindings.push(TopBinding::Expr(lam_name.clone(), P(f.clone())));
+            top_bindings.push(TopBinding::Expr(
+                lam_name.clone(),
+                ty.unwrap_or_else(|| panic!("lambda expr {name} should be annotated")),
+                P(f.clone()),
+            ));
 
             // insert binding for env capture and closure creatation
             // this will keep the properties of ANF
@@ -146,7 +158,7 @@ impl Expr {
 
             // map the binding name into the closure
             // do not bind the env name because it's useless and may cause variable shadowing
-            ctx = ctx.insert(name, Binding::ClosureAbbr(closure));
+            ctx = ctx.insert_closure_subst(name.as_str(), ());
         } else if info.requires_lifting() {
             let ClosureInfo {
                 lambda_name: Some(lam_name),
@@ -158,11 +170,15 @@ impl Expr {
             let lam = P(Expr::Var(lam_name.clone()));
 
             // lift the lambda body to the top scope
-            top_bindings.push(TopBinding::Expr(lam_name, P(f)));
+            top_bindings.push(TopBinding::Expr(
+                lam_name,
+                ty.clone().expect("lambda expr should be annotated"),
+                P(f),
+            ));
 
             work_list.push((name.clone(), ty.clone(), lam.clone()));
 
-            ctx = ctx.insert(name, Binding::LambdaAbbr(lam));
+            ctx = ctx.insert_lambda_subst(name.as_str(), ());
         } else {
             // keep the original binding and
             // change the call site if necessary
@@ -173,15 +189,15 @@ impl Expr {
             ));
 
             // update the context
-            ctx = ctx.insert(name, Binding::VarTy(ty))
+            ctx = ctx.insert_var_ty(name.as_str(), ty)
         }
         ctx
     }
 
     fn closure_conversion_aux(
         self,
-        mut ctx: Context<String, Binding>,
-        top_ctx: Context<String, Binding>,
+        mut ctx: ContextGroup,
+        top_ctx: ContextGroup,
         fresh1: &RefCell<usize>,
         fresh2: &RefCell<usize>,
         fresh3: &RefCell<usize>,
@@ -209,33 +225,37 @@ impl Expr {
     }
 
     fn transform_lambda(self, fv: &HashSet<String>) -> Self {
-        let Expr::Abs(params, body) = self else { unreachable!() };
-        let mut params = params.into_vec();
-        params.insert(0, ("__closure__".into(), None));
-        let closure = P(Expr::Var("__closure__".into()));
+        if fv.is_empty() {
+            self
+        } else {
+            let Expr::Abs(params, body) = self else { unreachable!() };
+            let mut params = params.into_vec();
+            params.insert(0, ("__closure__".into(), None));
+            let closure = P(Expr::Var("__closure__".into()));
 
-        let fv = fv.iter().collect_vec();
-        let new_body = fv.into_iter().enumerate().rfold(body, |expr, (idx, fv)| {
-            P(Expr::Let(
-                fv.clone(),
-                None,
-                P(Expr::Proj(closure.clone(), (idx + 1) as u64)),
-                expr,
-            ))
-        });
-        Expr::Abs(params.into(), new_body)
+            let fv = fv.iter().collect_vec();
+            let new_body = fv.into_iter().enumerate().rfold(body, |expr, (idx, fv)| {
+                P(Expr::Let(
+                    fv.clone(),
+                    None,
+                    P(Expr::Proj(closure.clone(), (idx + 1) as u64)),
+                    expr,
+                ))
+            });
+            Expr::Abs(params.into(), new_body)
+        }
     }
 
-    fn transform_call_site(self, ctx: Context<String, Binding>) -> Self {
+    fn transform_call_site(self, ctx: ContextGroup) -> Self {
         if let Expr::App(f, _) = &self {
             let Expr::Var(name) = f.as_ref() else { panic!("wrong application") };
-            match ctx.lookup(name.as_str()) {
-                Some(Binding::ClosureAbbr(_)) => {
-                    self.transform_closure_call_site(None)
-                }
-                Some(Binding::LambdaAbbr(_)) => self.transform_direct_call_site(None),
-                _ => panic!("unknown function {name}"),
+            if ctx.lookup_closure_subst(name.as_str()).is_some() {
+                return self.transform_closure_call_site(None);
             }
+            if ctx.lookup_lambda_subst(name.as_str()).is_some() {
+                return self.transform_direct_call_site(None);
+            }
+            panic!("unknown function {name}")
         } else {
             self
         }
@@ -285,17 +305,17 @@ mod tests {
     fn test_closure_conversion() {
         closure_conv(
             r"
-    (def _1
+    (def _1 :: unit
      (let c :: int 32 
       (let k 
        (\ (x) c)
         (@ k c))))
-    (def _2
+    (def _2 :: unit
      (let c :: int 32 
       (let k 
        (\ (x) x)
        (\ (x) x))))
-    (def _3
+    (def _3 :: unit
      (let c :: int 32 
       (let k 
        (\ (x) x)

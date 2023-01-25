@@ -13,7 +13,7 @@ raw_string_begin = @{ PUSH((!WHITESPACE ~ !"\"" ~ ANY){,16}) ~ "\"" }
 raw_string_inner = @{ (!("\"" ~ PEEK) ~ ANY)* }
 raw_string_end = @{ "\"" ~ POP }
 
-decimal = @{ ASCII_NONZERO_DIGIT ~ ASCII_DIGIT* }
+decimal = @{ ASCII_DIGIT ~ ASCII_DIGIT* }
 decimal_float = @{
     "." ~ ASCII_DIGIT+ ~ decimal_exponent?
     | ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ decimal_exponent?

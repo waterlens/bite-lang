@@ -1,10 +1,6 @@
 use super::*;
 
 impl Type {
-    pub fn pack(self) -> TyRef {
-        P(self)
-    }
-
     fn map_aux<F1, F2>(self, c: isize, f1: F1, f2: F2) -> Self
     where
         F1: Fn(isize, isize) -> Self + Clone,
@@ -12,7 +8,7 @@ impl Type {
     {
         use Type::*;
         match self {
-            Unit | Str | Integer | Bool => self,
+            Unit | Str | Integer | Float | Bool => self,
             Var(x) => f1(c, x),
             Named(x) => f2(c, x.as_str()),
             All(x, y) => All(x, y.map(|y| y.map_aux(c + 1, f1, f2))),
@@ -21,7 +17,11 @@ impl Type {
                     .map(|t| t.map_aux(c, f1.clone(), f2.clone()))
                     .collect(),
                 y.map(|y| y.map_aux(c, f1.clone(), f2.clone())),
-                z.map(|t| t.map(|t| t.map_aux(c, f1.clone(), f2.clone()))),
+                z.map(|t| {
+                    t.into_iter()
+                        .map(|t| t.map_aux(c, f1.clone(), f2.clone()))
+                        .collect()
+                }),
             ),
             Variant(x) => Variant(
                 x.into_iter()
@@ -65,9 +65,13 @@ impl Type {
 
     pub fn to_locally_nameless(self) -> Type {
         match self {
-            Type::Unit | Type::Str | Type::Integer | Type::Bool | Type::Var(_) | Type::Named(_) => {
-                self
-            }
+            Type::Unit
+            | Type::Str
+            | Type::Integer
+            | Type::Float
+            | Type::Bool
+            | Type::Var(_)
+            | Type::Named(_) => self,
             Type::All(x, y) => {
                 let y = y
                     .map(|y| y.var_close(x.as_str()))
@@ -77,7 +81,7 @@ impl Type {
             Type::Arrow(x, y, z) => Type::Arrow(
                 x.into_iter().map(|x| x.to_locally_nameless()).collect(),
                 y.map(|y| y.to_locally_nameless()),
-                z.map(|z| z.map(|z| z.to_locally_nameless())),
+                z.map(|t| t.into_iter().map(|t| t.to_locally_nameless()).collect()),
             ),
             Type::Variant(xs) => Type::Variant(
                 xs.into_iter()
@@ -186,8 +190,8 @@ impl Type {
                 Type::Var(x)
             }
         });
-        names[..len].iter().rfold(new_inner, |inner, name| {
-            Type::All(name.clone(), inner.pack())
-        })
+        names[..len]
+            .iter()
+            .rfold(new_inner, |inner, name| Type::All(name.clone(), P(inner)))
     }
 }
