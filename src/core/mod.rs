@@ -15,8 +15,8 @@ pub mod conversion;
 pub mod expr;
 pub mod infer;
 pub mod normalizer;
-pub mod ty;
 pub mod subst;
+pub mod ty;
 
 pub static OP_NAME: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
@@ -33,6 +33,7 @@ pub enum Type {
     Integer,
     Float,
     Bool,
+    Hole,
     Var(isize),
     Named(String),
     All(String, TyRef),

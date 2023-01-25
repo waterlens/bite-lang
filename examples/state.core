@@ -1,18 +1,19 @@
-(type put (# effect ([int] -> unit)))
-(type get (# effect ([] -> int)))
+(type lget ([(# cont unit int)] -> int))
+(type lput ([(# cont int unit) int] -> unit))
+
 (def state :: ([int ([lget lput] -> int)] -> int)
     ((\ [(init :: int) (f :: ([lget lput] -> int))]
-        (let st :: int (inj ref 0)
-            (let hput :: ([(# cont int unit) int] -> unit)
+        (let st :: int (inj ref init)
+            (let hput :: lput
                         (\ [(k :: (# cont int unit)) (x :: int)]
                             (let _ :: unit (inj ref_set st x)
                                 (resume k ())))
-            (let hget :: ([(# cont unit int)] -> int)
+            (let hget :: lget
                         (\ [(k :: (# cont unit int))]
                             (resume k (inj ref_get st)))
-                (try lput hput
-                    (try lget hget
-                        (@ f lget lput)))))))
+                (try h1 hget
+                    (try h2 hput
+                        (@ f h1 h2)))))))
         :: ([int ([] -> int)] -> int)
     ))
 

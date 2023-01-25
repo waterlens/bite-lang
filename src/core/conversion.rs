@@ -259,6 +259,7 @@ impl From<&Type> for SexpWithString {
             Type::Integer => Ident("int".into()),
             Type::Float => Ident("float".into()),
             Type::Bool => Ident("bool".into()),
+            Type::Hole => Ident("<hole>".into()),
             Type::Var(x) => Ident(format!("`{x}").into()),
             Type::Named(x) => Ident(x.clone()),
             Type::All(x, t) => {
@@ -331,7 +332,7 @@ impl From<&Expr> for SexpWithString {
                 e3.as_ref().into(),
             ]),
             Expr::Abs(xs, e) => List(vec![
-                Op("\\".into()),
+                Op("lambda".into()),
                 List(
                     xs.iter()
                         .map(|(s, ty)| {
@@ -346,7 +347,7 @@ impl From<&Expr> for SexpWithString {
                 e.as_ref().into(),
             ]),
             Expr::App(f, xs) => {
-                let mut v = vec![Op("@".into()), f.as_ref().into()];
+                let mut v = vec![Ident("apply".into()), f.as_ref().into()];
                 v.extend(xs.iter().map(|x| x.into()));
                 List(v)
             }

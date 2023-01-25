@@ -8,7 +8,7 @@ impl Type {
     {
         use Type::*;
         match self {
-            Unit | Str | Integer | Float | Bool => self,
+            Unit | Str | Integer | Float | Bool | Hole => self,
             Var(x) => f1(c, x),
             Named(x) => f2(c, x.as_str()),
             All(x, y) => All(x, y.map(|y| y.map_aux(c + 1, f1, f2))),
@@ -71,7 +71,8 @@ impl Type {
             | Type::Float
             | Type::Bool
             | Type::Var(_)
-            | Type::Named(_) => self,
+            | Type::Named(_)
+            | Type::Hole => self,
             Type::All(x, y) => {
                 let y = y
                     .map(|y| y.var_close(x.as_str()))

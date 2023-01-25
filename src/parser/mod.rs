@@ -1,3 +1,2 @@
-
-pub mod syntax;
 pub mod core;
+pub mod syntax;

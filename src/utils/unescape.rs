@@ -66,9 +66,15 @@ mod tests {
     #[test]
     fn unescape_test() {
         assert_eq!(unescape(r#"\""#), Ok("\"".into()));
-        assert_eq!(unescape(r#"\x"#), Err(UnescapeError::InvalidEscape { escape: 'x' }));
+        assert_eq!(
+            unescape(r#"\x"#),
+            Err(UnescapeError::InvalidEscape { escape: 'x' })
+        );
         assert_eq!(unescape(r#"\"#), Err(UnescapeError::UnexpectedEndOfString));
         assert_eq!(unescape(r#"\\\""#), Ok("\\\"".into()));
-        assert_eq!(unescape(r#"\a\b\v\f\n\r\t\e\\\'\""#), Ok("\u{07}\u{08}\u{0b}\u{0c}\u{0a}\u{0d}\u{09}\u{1b}\u{5c}\u{27}\u{22}".into()))
+        assert_eq!(
+            unescape(r#"\a\b\v\f\n\r\t\e\\\'\""#),
+            Ok("\u{07}\u{08}\u{0b}\u{0c}\u{0a}\u{0d}\u{09}\u{1b}\u{5c}\u{27}\u{22}".into())
+        )
     }
 }

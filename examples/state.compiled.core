@@ -1,0 +1,74 @@
+(type lget (((ctor cont unit int)) -> int))
+(type lput (((ctor cont int unit) int) -> unit))
+(def %lambda0
+    ::
+    <hole>
+    (lambda ((%closure :: (ctor closure))
+            (k :: (ctor cont int unit)) (x :: int))
+        (let st (%closure . 1)
+        (let _ ::
+            unit
+            (inj ref_set st x)
+            (let %0 (resume k ()) %0)))))
+(def %lambda1
+    ::
+    <hole>
+    (lambda ((%closure :: (ctor closure))
+            (k :: (ctor cont unit int)))
+        (let st (%closure . 1)
+        (let %2 (inj ref_get st) (let %3 (resume k %2) %3)))))
+(def %lambda2
+    ::
+    <hole>
+    (lambda ((init :: int) (f :: ((lget lput) -> int)))
+        (let st ::
+        int
+        (inj ref init)
+        (let hput ::
+            lput
+            (inj closure %lambda0 st)
+            (let hget ::
+            lget
+            (inj closure %lambda1 st)
+            (let %6 (try
+                    h1
+                    hget
+                    [let %5
+                        (try h2 hput (let %4 (apply f h1 h2) %4))
+                        %5])
+                %6))))))
+(def state
+    ::
+    ((int ((lget lput) -> int)) -> int)
+    (let %10 :: ((int (() -> int)) -> int) %lambda2 %10))
+(def %lambda3
+    ::
+    <hole>
+    (lambda ((lget :: (((ctor cont unit int)) -> int))
+            (lput :: (((ctor cont int unit) int) -> unit)))
+        (let i ::
+        int
+        (raise lget ())
+        (let %0 (apply == i 0)
+            (let %4 (if
+                    %0
+                    0
+                    [let %1
+                    (apply - i 1)
+                    (let _ ::
+                        unit
+                        (raise lput %1)
+                        (let %2 (apply counter lget lput) %2))])
+            %4)))))
+(def counter
+    ::
+    ((lget lput) -> int)
+    (let %6 :: ((lget lput) -> int) %lambda3 %6))
+(def %lambda4
+    ::
+    <hole>
+    (lambda () (let %0 (apply state 100 counter) %0)))
+(def main
+    ::
+    (() -> int)
+    (let %1 :: (() -> int) %lambda4 %1))
