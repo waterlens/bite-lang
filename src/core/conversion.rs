@@ -162,14 +162,14 @@ impl TryFrom<&SexpWithStr<'_>> for Type {
                     for sexp in xs {
                         tys.push(sexp.try_into()?)
                     }
-                    Ok(Type::Tuple(tys.into()))
+                    Ok(Type::Ctor(None, tys.into()))
                 }
                 [Ident("ctor") | Op("#"), Ident(name), xs @ ..] => {
                     let mut tys = vec![];
                     for sexp in xs {
                         tys.push(sexp.try_into()?)
                     }
-                    Ok(Type::Ctor((*name).into(), tys.into()))
+                    Ok(Type::Ctor(Some((*name).into()), tys.into()))
                 }
                 [Ident("variant"), xs @ ..] => {
                     let mut fields = vec![];
@@ -297,13 +297,13 @@ impl From<&Type> for SexpWithString {
                 }));
                 List(v)
             }
-            Type::Tuple(xs) => {
-                let mut v = vec![Ident("tuple".into())];
-                v.extend(xs.iter().map(|ty| ty.into()));
-                List(v)
-            }
             Type::Ctor(x, xs) => {
-                let mut v = vec![Op("ctor".into()), Ident(x.clone())];
+                let mut v;
+                if let Some(x) = x {
+                    v = vec![Op("ctor".into()), Ident(x.clone())];
+                } else {
+                    v = vec![Ident("tuple".into())];
+                }
                 v.extend(xs.iter().map(|t| t.into()));
                 List(v)
             }

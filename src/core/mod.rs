@@ -39,8 +39,7 @@ pub enum Type {
     All(String, TyRef),
     Arrow(TyRefs, TyRef, Option<TyRefs>),
     Variant(P<[(String, TyRefs)]>),
-    Tuple(TyRefs),
-    Ctor(String, TyRefs),
+    Ctor(Option<String>, TyRefs),
 }
 
 #[derive(Debug, Clone)]

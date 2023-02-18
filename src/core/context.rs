@@ -191,7 +191,6 @@ impl ContextGroup {
                 self.type_eq(t1, t2.as_ref())
             }
             (Named(s1), Named(s2)) => s1 == s2,
-            (Tuple(t1), Tuple(t2)) => self.types_eq(t1.as_ref(), t2.as_ref()),
             (All(_, t1), All(_, t2)) => self.type_eq(t1.as_ref(), t2.as_ref()),
             (Ctor(x, t1), Ctor(y, t2)) if x == y => self.types_eq(t1, t2),
             (Variant(f1), Variant(f2)) if f1.len() == f2.len() => f1

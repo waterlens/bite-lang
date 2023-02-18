@@ -35,11 +35,6 @@ impl Type {
                     })
                     .collect(),
             ),
-            Tuple(x) => Tuple(
-                x.into_iter()
-                    .map(|t| t.map_aux(c, f1.clone(), f2.clone()))
-                    .collect(),
-            ),
             Ctor(x, y) => Ctor(
                 x,
                 y.into_iter()
@@ -89,9 +84,6 @@ impl Type {
                     .map(|(x, y)| (x, y.into_iter().map(|y| y.to_locally_nameless()).collect()))
                     .collect(),
             ),
-            Type::Tuple(xs) => {
-                Type::Tuple(xs.into_iter().map(|x| x.to_locally_nameless()).collect())
-            }
             Type::Ctor(x, ys) => {
                 Type::Ctor(x, ys.into_iter().map(|y| y.to_locally_nameless()).collect())
             }

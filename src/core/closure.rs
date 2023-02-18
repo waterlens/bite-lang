@@ -73,22 +73,18 @@ impl ClosureConversion {
                     0,
                     (
                         "%closure".into(),
-                        Some(Type::Ctor("closure".into(), [].to_vec().into()).into()),
+                        Some(Type::Ctor(Some("closure".into()), [].to_vec().into()).into()),
                     ),
                 );
                 let closure = P(Expr::Var("%closure".into()));
-                let next_e = fv
-                    .iter()
-                    .copied()
-                    .enumerate()
-                    .rfold(e, |expr, (idx, fv)| {
-                        P(Expr::Let(
-                            fv.clone(),
-                            None,
-                            P(Expr::Proj(closure.clone(), (idx + 1) as u64)),
-                            expr,
-                        ))
-                    });
+                let next_e = fv.iter().copied().enumerate().rfold(e, |expr, (idx, fv)| {
+                    P(Expr::Let(
+                        fv.clone(),
+                        None,
+                        P(Expr::Proj(closure.clone(), (idx + 1) as u64)),
+                        expr,
+                    ))
+                });
 
                 let mut closure_fields = vec![Expr::Abs(params.into(), next_e)];
                 closure_fields.extend(fv.iter().copied().map(|name| Expr::Var(name.clone())));
